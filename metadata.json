@@ -1,0 +1,6 @@
+{
+  "name": "Giải Tích 1 UET — Cẩm Nang LaTeX & Học Liệu Tương Tác",
+  "description": "Tổng hợp toàn diện kiến thức Giải Tích 1 (UET.MAT1050) kèm mã nguồn LaTeX/TikZ chuẩn xuất bản, bảng tra cứu công thức, mô phỏng đạo hàm - tích phân tương tác và trắc nghiệm củng cố theo từng chương.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
