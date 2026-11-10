@@ -7,7 +7,8 @@ import {
   DEFAULT_LATEX_OPTIONS,
   LatexGeneratorOptions,
 } from '../utils/latexGenerator';
-import { Download, Copy, Check, FileText, Code2, Sparkles } from 'lucide-react';
+import { Download, Copy, Check, FileText, Code2, Globe } from 'lucide-react';
+import { GitHubPagesModal } from './GitHubPagesModal';
 
 interface LatexStudioExporterProps {
   onDownloadFullTex: () => void;
@@ -19,6 +20,7 @@ export const LatexStudioExporter: React.FC<LatexStudioExporterProps> = ({
   const [options, setOptions] = useState<LatexGeneratorOptions>(DEFAULT_LATEX_OPTIONS);
   const [scope, setScope] = useState<'full' | number>('full');
   const [copied, setCopied] = useState(false);
+  const [isGhPagesModalOpen, setIsGhPagesModalOpen] = useState(false);
 
   const generatedTex = useMemo(() => {
     if (scope === 'full') {
@@ -67,7 +69,7 @@ export const LatexStudioExporter: React.FC<LatexStudioExporterProps> = ({
           <div className="space-y-1.5 max-w-2xl">
             <div className="flex items-center gap-2 text-xs font-semibold text-sky-700 dark:text-sky-400">
               <FileText className="w-4 h-4" />
-              <span>TRÌNH XUẤT BẢN MÃ NGUỒN LATEX &amp; TIKZ CHUẨN OVERLEAF / PDFLATEX</span>
+              <span>TRÌNH XUẤT BẢN MÃ NGUỒN LATEX &amp; TIKZ CHUẨN OVERLEAF / PDFLATEX · SẴN SÀNG GITHUB PAGES</span>
             </div>
             <h2
               id="latex-studio-heading"
@@ -93,7 +95,7 @@ export const LatexStudioExporter: React.FC<LatexStudioExporterProps> = ({
             </button>
 
             <a
-              href="/Giai_Tich_1_UET_MAT1050.tex"
+              href="./Giai_Tich_1_UET_MAT1050.tex"
               download="Giai_Tich_1_UET_MAT1050.tex"
               className="inline-flex items-center gap-1.5 px-3.5 py-2.5 text-xs font-semibold text-slate-800 dark:text-slate-200 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 hover:bg-slate-100 rounded-lg transition-colors whitespace-nowrap"
             >
@@ -109,8 +111,21 @@ export const LatexStudioExporter: React.FC<LatexStudioExporterProps> = ({
               {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
               {copied ? 'Đã Copy toàn bộ mã LaTeX!' : 'Copy Toàn Bộ Mã LaTeX'}
             </button>
+
+            <button
+              type="button"
+              onClick={() => setIsGhPagesModalOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2.5 text-xs font-semibold text-slate-800 bg-slate-100 border border-slate-300 hover:bg-slate-200 rounded-lg transition-colors whitespace-nowrap cursor-pointer"
+            >
+              <Globe className="w-4 h-4 text-sky-700" />
+              Publish GitHub Pages (Tĩnh)
+            </button>
           </div>
         </div>
+        <GitHubPagesModal
+          isOpen={isGhPagesModalOpen}
+          onClose={() => setIsGhPagesModalOpen(false)}
+        />
 
         {/* Customization Controls */}
         <div className="mt-5 pt-4 border-t border-slate-200 dark:border-slate-700/80 flex flex-wrap items-center justify-between gap-4">

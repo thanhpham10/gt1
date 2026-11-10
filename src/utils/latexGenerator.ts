@@ -20,6 +20,133 @@ export const DEFAULT_LATEX_OPTIONS: LatexGeneratorOptions = {
 };
 
 /**
+ * Sanitizes mixed Vietnamese prose + inline math/LaTeX tokens so that pdflatex
+ * compiles with zero "Misplaced alignment tab character &", "Missing $ inserted",
+ * or Unicode math symbol errors.
+ */
+export function sanitizeLatexProse(raw: string): string {
+  if (!raw) return '';
+
+  let s = raw;
+
+  // 1. First replace Unicode operators that often appear inside math expressions (like ∑_{n=1}^∞ or ∫_0^1)
+  // with raw LaTeX commands BEFORE wrapping math blocks, so the entire expression stays together!
+  const preMathUnicodeMap: Array<[RegExp, string]> = [
+    [/∑/g, '\\sum'],
+    [/∫/g, '\\int'],
+    [/∞/g, '\\infty'],
+    [/→/g, '\\to '],
+    [/←/g, '\\leftarrow '],
+    [/↔/g, '\\leftrightarrow '],
+    [/⇒/g, '\\Rightarrow '],
+    [/⇔/g, '\\iff '],
+    [/∀/g, '\\forall '],
+    [/∃/g, '\\exists '],
+    [/∈/g, '\\in '],
+    [/∉/g, '\\notin '],
+    [/⊂/g, '\\subset '],
+    [/∪/g, '\\cup '],
+    [/∩/g, '\\cap '],
+    [/≈/g, '\\approx '],
+    [/≠/g, '\\neq '],
+    [/≤/g, '\\le '],
+    [/≥/g, '\\ge '],
+    [/±/g, '\\pm '],
+    [/×/g, '\\times '],
+    [/·/g, '\\cdot '],
+    [/∘/g, '\\circ '],
+    [/∂/g, '\\partial '],
+    [/∇/g, '\\nabla '],
+    [/≪/g, '\\ll '],
+    [/≫/g, '\\gg '],
+    [/⌈/g, '\\lceil '],
+    [/⌉/g, '\\rceil '],
+    [/π/g, '\\pi '],
+    [/θ/g, '\\theta '],
+    [/α/g, '\\alpha '],
+    [/β/g, '\\beta '],
+    [/γ/g, '\\gamma '],
+    [/δ/g, '\\delta '],
+    [/ε/g, '\\varepsilon '],
+    [/λ/g, '\\lambda '],
+    [/μ/g, '\\mu '],
+    [/ρ/g, '\\rho '],
+    [/σ/g, '\\sigma '],
+    [/τ/g, '\\tau '],
+    [/ω/g, '\\omega '],
+    [/Δ/g, '\\Delta '],
+    [/Φ/g, '\\Phi '],
+    [/Ω/g, '\\Omega '],
+    [/x̄/g, '\\bar{x}'],
+    [/ȳ/g, '\\bar{y}'],
+    [/²/g, '^2'],
+    [/³/g, '^3'],
+    [/⁴/g, '^4'],
+    [/₀/g, '_0'],
+    [/₁/g, '_1'],
+    [/₂/g, '_2'],
+    [/√\(([^)]+)\)/g, '\\sqrt{$1}'],
+    [/√([a-zA-Z0-9]+)/g, '\\sqrt{$1}'],
+    [/√/g, '\\sqrt{}'],
+  ];
+
+  for (const [pattern, replacement] of preMathUnicodeMap) {
+    s = s.replace(pattern, replacement);
+  }
+
+  // 2. Handle \begin{cases} ... \end{cases} inside prose first
+  if (!s.includes('$')) {
+    s = s.replace(/(\\begin\{cases\}[\s\S]*?\\end\{cases\})/g, '$$$1$$');
+  }
+
+  // 3. Escape unescaped ampersands (& -> \&) and percent signs (% -> \%) outside of cases/matrices
+  s = s
+    .split(/(\$[^$]+\$)/g)
+    .map((part) => {
+      if (part.startsWith('$')) return part;
+      return part.replace(/(?<!\\)&/g, '\\&').replace(/(?<!\\)%/g, '\\%');
+    })
+    .join('');
+
+  // 4. Wrap any remaining LaTeX math commands, sub/superscripts in plain-text segments into $...$
+  const segments = s.split(/(\$[^$]+\$)/g);
+  const processed = segments.map((seg) => {
+    if (seg.startsWith('$') && seg.endsWith('$')) {
+      return seg;
+    }
+
+    let text = seg;
+
+    // Normalize bare "lim_{...}" or "log_{...}" into "\lim_{...}" / "\log_{...}"
+    text = text.replace(/\b(lim|log|sin|cos|tan|ln|max|min)_/g, '\\$1_');
+
+    // Match compound math tokens: commands with arguments/scripts, or variables with ^ / _
+    const mathTokenRegex =
+      /(\\(?:frac|sqrt|ln|log|sin|cos|tan|cot|sec|csc|arcsin|arccos|arctan|sinh|cosh|tanh|lim|int|sum|prod|left|right|Big|bigg|infty|pi|theta|alpha|beta|gamma|delta|varepsilon|lambda|mu|rho|sigma|tau|omega|Delta|Phi|Omega|nabla|partial|to|leftarrow|leftrightarrow|Rightarrow|implies|iff|le|ge|neq|approx|pm|times|cdot|circ|ll|gg|lceil|rceil|forall|exists|in|notin|subset|cup|cap|mathbb|mathcal|bar|hat|vec|max|min)(?:\s*_(?:\{[^{}]*\}|[a-zA-Z0-9+-]+)|\s*\^(?:\{[^{}]*\}|\\?[a-zA-Z0-9+-]+)|\s*\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}|\s*\[[^\]]*\]|\s*\\left[\s\S]*?\\right[)|\]}])*|[a-zA-Z0-9_'()[\]|+-]+(?:\s*_(?:\{[^{}]*\}|[a-zA-Z0-9+-]+)|\s*\^(?:\{[^{}]*\}|\\?[a-zA-Z0-9+-]+))+)/g;
+
+    text = text.replace(mathTokenRegex, (match) => `$${match.trim()}$`);
+
+    // Final safety pass on non-math parts for any stray _ or ^
+    text = text
+      .split(/(\$[^$]+\$)/g)
+      .map((part) => {
+        if (part.startsWith('$')) return part;
+        return part.replace(/(?<!\\)_/g, '\\_').replace(/(?<!\\)\^/g, '\\^{}');
+      })
+      .join('');
+
+    return text;
+  });
+
+  // Merge adjacent math blocks separated only by spaces or simple math operators (+, -, =, <, >, /, |)
+  let result = processed.join('');
+  result = result.replace(/\$\s*\$/g, ' ');
+  result = result.replace(/\$\s*([=<>+\-*/|])\s*\$/g, ' $1 ');
+
+  return result;
+}
+
+/**
  * Generates a standalone LaTeX snippet for a single chapter
  */
 export function generateChapterLatex(
@@ -27,27 +154,30 @@ export function generateChapterLatex(
   options: LatexGeneratorOptions = DEFAULT_LATEX_OPTIONS
 ): string {
   const lines: string[] = [];
+  const cleanChapterTitle = sanitizeLatexProse(chapter.title.replace(/^Chương \d+:\s*/, ''));
 
   lines.push(`% ======================================================================`);
   lines.push(`% ${chapter.title.toUpperCase()} (${chapter.sessionRange})`);
   lines.push(`% ======================================================================`);
-  lines.push(`\\chapter{${chapter.title.replace(/^Chương \d+:\s*/, '')}}`);
+  lines.push(`\\chapter{${cleanChapterTitle}}`);
   lines.push(`\\label{chap:chuong-${chapter.id}}`);
   lines.push(``);
 
   // Chapter Mini Table of Contents & Overview
-  lines.push(`\\begin{tcolorbox}[colback=slate!5!white,colframe=slate!75!black,title={\\textbf{Mục lục Chương ${chapter.id} \\& Chuẩn đầu ra (${chapter.sessionRange})}}]`);
-  lines.push(`\\textbf{Tổng quan:} ${chapter.overview}\\\\[6pt]`);
+  lines.push(
+    `\\begin{tcolorbox}[colback=slate!5!white,colframe=slate!75!black,title={\\textbf{Mục lục Chương ${chapter.id} \\& Chuẩn đầu ra (${sanitizeLatexProse(chapter.sessionRange)})}}]`
+  );
+  lines.push(`\\textbf{Tổng quan:} ${sanitizeLatexProse(chapter.overview)}\\\\[6pt]`);
   lines.push(`\\textbf{Nội dung chính trong chương:}`);
   lines.push(`\\begin{itemize}[leftmargin=1.5em, itemsep=2pt]`);
   for (const toc of chapter.tableOfContents) {
-    lines.push(`  \\item \\textbf{Mục ${toc.code}:} ${toc.title}`);
+    lines.push(`  \\item \\textbf{Mục ${toc.code}:} ${sanitizeLatexProse(toc.title)}`);
   }
   lines.push(`\\end{itemize}`);
   lines.push(`\\textbf{Chuẩn đầu ra (LLO):}`);
   lines.push(`\\begin{itemize}[leftmargin=1.5em, itemsep=2pt]`);
   for (const llo of chapter.learningOutcomes) {
-    lines.push(`  \\item ${llo}`);
+    lines.push(`  \\item ${sanitizeLatexProse(llo)}`);
   }
   lines.push(`\\end{itemize}`);
   lines.push(`\\end{tcolorbox}`);
@@ -55,17 +185,17 @@ export function generateChapterLatex(
 
   // Subsections
   for (const sub of chapter.subSections) {
-    lines.push(`\\section{[Mục ${sub.code}] ${sub.title}}`);
-    lines.push(`${sub.summary}`);
+    lines.push(`\\section{[Mục ${sub.code}] ${sanitizeLatexProse(sub.title)}}`);
+    lines.push(`${sanitizeLatexProse(sub.summary)}`);
     lines.push(``);
 
     // Key Formulas
     lines.push(`\\begin{congthuc}{Các công thức trọng tâm (${sub.code})}`);
     for (const kf of sub.keyFormulas) {
-      lines.push(`\\noindent\\textbf{${kf.label}:}`);
+      lines.push(`\\noindent\\textbf{${sanitizeLatexProse(kf.label)}:}`);
       lines.push(`\\[ ${kf.latex} \\]`);
       if (kf.note) {
-        lines.push(`\\noindent\\textit{Chú giải:} ${kf.note}\\\\[4pt]`);
+        lines.push(`\\noindent\\textit{Chú giải:} ${sanitizeLatexProse(kf.note)}\\\\[4pt]`);
       }
     }
     lines.push(`\\end{congthuc}`);
@@ -76,28 +206,28 @@ export function generateChapterLatex(
       lines.push(`\\noindent\\textbf{Chú giải \\& Lưu ý kỹ thuật:}`);
       lines.push(`\\begin{itemize}[leftmargin=1.5em, itemsep=2pt]`);
       for (const note of sub.detailedNotes) {
-        lines.push(`  \\item ${note}`);
+        lines.push(`  \\item ${sanitizeLatexProse(note)}`);
       }
       lines.push(`\\end{itemize}`);
       lines.push(``);
     }
 
     // Example
-    lines.push(`\\begin{vidu}{${sub.example.title}}`);
-    lines.push(`\\textbf{Đề bài:} ${sub.example.problem}`);
+    lines.push(`\\begin{vidu}{${sanitizeLatexProse(sub.example.title)}}`);
+    lines.push(`\\textbf{Đề bài:} ${sanitizeLatexProse(sub.example.problem)}`);
     if (sub.example.problemMath) {
       lines.push(`\\[ ${sub.example.problemMath} \\]`);
     }
     lines.push(`\\textbf{Lời giải chi tiết:}`);
     lines.push(`\\begin{enumerate}[leftmargin=1.5em, itemsep=2pt]`);
     for (const step of sub.example.solutionSteps) {
-      lines.push(`  \\item ${step}`);
+      lines.push(`  \\item ${sanitizeLatexProse(step)}`);
     }
     lines.push(`\\end{enumerate}`);
     for (const mathLine of sub.example.solutionMath) {
       lines.push(`\\[ ${mathLine} \\]`);
     }
-    lines.push(`\\noindent\\textbf{Kết luận:} ${sub.example.conclusion}`);
+    lines.push(`\\noindent\\textbf{Kết luận:} ${sanitizeLatexProse(sub.example.conclusion)}`);
     lines.push(`\\end{vidu}`);
     lines.push(``);
   }
@@ -108,7 +238,7 @@ export function generateChapterLatex(
     lines.push(`\\begin{figure}[htbp]`);
     lines.push(`\\centering`);
     lines.push(chapter.tikzDiagram.tikzCode);
-    lines.push(`\\caption{${chapter.tikzDiagram.caption}}`);
+    lines.push(`\\caption{${sanitizeLatexProse(chapter.tikzDiagram.caption)}}`);
     lines.push(`\\label{fig:${chapter.tikzDiagram.id}}`);
     lines.push(`\\end{figure}`);
     lines.push(``);
@@ -116,11 +246,15 @@ export function generateChapterLatex(
 
   // Real-World Application
   if (options.includeRealWorldApps && chapter.realWorldApp) {
-    lines.push(`\\section{Ứng dụng Thực tế \\& Tối ưu hóa (${chapter.realWorldApp.field})}`);
-    lines.push(`\\begin{ungdung}{${chapter.realWorldApp.title}}`);
-    lines.push(`${chapter.realWorldApp.description}`);
+    lines.push(
+      `\\section{Ứng dụng Thực tế \\& Tối ưu hóa (${sanitizeLatexProse(chapter.realWorldApp.field)})}`
+    );
+    lines.push(`\\begin{ungdung}{${sanitizeLatexProse(chapter.realWorldApp.title)}}`);
+    lines.push(`${sanitizeLatexProse(chapter.realWorldApp.description)}`);
     lines.push(`\\[ ${chapter.realWorldApp.formulaMath} \\]`);
-    lines.push(`\\noindent\\textbf{Ví dụ tính toán thực tế:} ${chapter.realWorldApp.exampleCalculation}`);
+    lines.push(
+      `\\noindent\\textbf{Ví dụ tính toán thực tế:} ${sanitizeLatexProse(chapter.realWorldApp.exampleCalculation)}`
+    );
     lines.push(`\\end{ungdung}`);
     lines.push(``);
   }
@@ -130,16 +264,18 @@ export function generateChapterLatex(
     lines.push(`\\section{Bài tập Trắc nghiệm Củng cố Chương ${chapter.id}}`);
     lines.push(`\\begin{enumerate}[label=\\textbf{Câu \\arabic*:}, leftmargin=2.2em, itemsep=8pt]`);
     for (const q of chapter.quiz) {
-      lines.push(`  \\item ${q.question}`);
+      lines.push(`  \\item ${sanitizeLatexProse(q.question)}`);
       lines.push(`  \\begin{itemize}[label={}, leftmargin=1em, itemsep=2pt]`);
       for (const opt of q.options) {
         const mathPart = opt.math ? ` \\quad ($${opt.math}$)` : '';
-        lines.push(`    \\item \\textbf{${opt.label}.} ${opt.text}${mathPart}`);
+        lines.push(`    \\item \\textbf{${opt.label}.} ${sanitizeLatexProse(opt.text)}${mathPart}`);
       }
       lines.push(`  \\end{itemize}`);
       if (options.includeQuizSolutions) {
         lines.push(`  \\vspace{2pt}`);
-        lines.push(`  \\noindent{\\color{teal!85!black}\\textbf{Đáp án đúng: ${q.correctAnswer}.}} \\textit{Giải thích:} ${q.explanation}`);
+        lines.push(
+          `  \\noindent{\\color{teal!85!black}\\textbf{Đáp án đúng: ${q.correctAnswer}.}} \\textit{Giải thích:} ${sanitizeLatexProse(q.explanation)}`
+        );
         if (q.explanationMath) {
           lines.push(`  \\[ ${q.explanationMath} \\]`);
         }
@@ -167,16 +303,22 @@ export function generateQuickTableLatex(
   lines.push(``);
 
   for (const cat of categories) {
-    lines.push(`\\section*{${cat.category}}`);
+    lines.push(`\\section*{${sanitizeLatexProse(cat.category)}}`);
     lines.push(`\\begin{longtable}{|p{0.25\\textwidth}|p{0.48\\textwidth}|p{0.21\\textwidth}|}`);
     lines.push(`\\hline`);
-    lines.push(`\\rowcolor{blue!10} \\textbf{Tên công thức} & \\textbf{Biểu thức Toán học} & \\textbf{Chú giải / Điều kiện} \\\\ \\hline`);
+    lines.push(
+      `\\rowcolor{blue!10} \\textbf{Tên công thức} & \\textbf{Biểu thức Toán học} & \\textbf{Chú giải / Điều kiện} \\\\ \\hline`
+    );
     lines.push(`\\endfirsthead`);
     lines.push(`\\hline`);
-    lines.push(`\\rowcolor{blue!10} \\textbf{Tên công thức} & \\textbf{Biểu thức Toán học} & \\textbf{Chú giải / Điều kiện} \\\\ \\hline`);
+    lines.push(
+      `\\rowcolor{blue!10} \\textbf{Tên công thức} & \\textbf{Biểu thức Toán học} & \\textbf{Chú giải / Điều kiện} \\\\ \\hline`
+    );
     lines.push(`\\endhead`);
     for (const item of cat.items) {
-      lines.push(`\\textbf{${item.name}} & $\\displaystyle ${item.formula}$ & ${item.condition} \\\\ \\hline`);
+      lines.push(
+        `\\textbf{${sanitizeLatexProse(item.name)}} & $\\displaystyle ${item.formula}$ & ${sanitizeLatexProse(item.condition)} \\\\ \\hline`
+      );
     }
     lines.push(`\\end{longtable}`);
     lines.push(``);
@@ -251,7 +393,7 @@ export function generateFullLatexDocument(
 
 \\newtcolorbox{vidu}[1]{
     enhanced, breakable,
-    colback=emerald!4!white,
+    colback=teal!4!white,
     colframe=teal!80!black,
     fonttitle=\\bfseries,
     title={Ví dụ minh họa: #1}
@@ -259,7 +401,7 @@ export function generateFullLatexDocument(
 
 \\newtcolorbox{ungdung}[1]{
     enhanced, breakable,
-    colback=amber!5!white,
+    colback=orange!5!white,
     colframe=orange!80!black,
     fonttitle=\\bfseries,
     title={Ứng dụng thực tế: #1}

@@ -545,7 +545,7 @@ export const CHAPTERS_PART_2: ChapterData[] = [
       svgType: 'integration-parts',
       tikzCode: `\\begin{tikzpicture}[scale=1.1, >=stealth]
   % Miền diện tích hội tụ dưới đường y = 1/x^2
-  \\fill[emerald!20, fill=teal!20] (1,0) -- plot[domain=1:4.6, smooth, variable=\\x] ({\\x}, {1.6/(\\x*\\x)}) -- (4.6,0) -- cycle;
+  \\fill[teal!20] (1,0) -- plot[domain=1:4.6, smooth, variable=\\x] ({\\x}, {1.6/(\\x*\\x)}) -- (4.6,0) -- cycle;
   
   % Trục tọa độ
   \\draw[->, thick] (-0.3,0) -- (5.0,0) node[right] {$x$};
